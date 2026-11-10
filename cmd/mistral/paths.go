@@ -110,8 +110,8 @@ func configFlag(args []string) string {
 }
 
 // validateConfigPath checks a path entered on the console before it is saved:
-// it must be absolute, exist, and already contain the mistral plugin block.
-// An empty path means auto-detect and is always valid.
+// it must be absolute, exist, and be YAML we can write the plugin block into
+// (a missing block is created on save). An empty path means auto-detect.
 func validateConfigPath(path string) error {
 	if path == "" {
 		return nil
@@ -124,7 +124,7 @@ func validateConfigPath(path string) error {
 		return fmt.Errorf("cannot read config file: %w", err)
 	}
 	if _, err := replacePluginBlock(string(raw), renderPluginBlock(defaultSettings())); err != nil {
-		return fmt.Errorf("%s has no plugins.configs.%s block", path, pluginConfigKey)
+		return fmt.Errorf("%s: %w", path, err)
 	}
 	return nil
 }

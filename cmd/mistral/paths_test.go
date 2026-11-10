@@ -127,13 +127,19 @@ func TestValidateConfigPath(t *testing.T) {
 	}
 	bare := filepath.Join(root, "bare.yaml")
 	writeFile(t, bare)
+	flow := filepath.Join(root, "flow.yaml")
+	if err := os.WriteFile(flow, []byte("plugins: [a]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := validateConfigPath(""); err != nil {
 		t.Errorf("empty path: %v", err)
 	}
-	if err := validateConfigPath(good); err != nil {
-		t.Errorf("good path: %v", err)
+	for _, ok := range []string{good, bare} {
+		if err := validateConfigPath(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
 	}
-	for _, bad := range []string{"relative/config.yaml", filepath.Join(root, "missing.yaml"), bare} {
+	for _, bad := range []string{"relative/config.yaml", filepath.Join(root, "missing.yaml"), flow} {
 		if err := validateConfigPath(bad); err == nil {
 			t.Errorf("%q should be rejected", bad)
 		}

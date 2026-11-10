@@ -369,43 +369,184 @@ func renderPluginBlock(s settings) string {
 	return buf.String()
 }
 
+// yamlLine is the little we need to know about one line of CPA's config to
+// walk the plugins → configs → mistral path.
+type yamlLine struct {
+	indent  int
+	key     string
+	value   string
+	content bool // false for blank and comment-only lines
+}
+
+func scanYAMLLine(line string) yamlLine {
+	trim := strings.TrimSpace(line)
+	if trim == "" || strings.HasPrefix(trim, "#") {
+		return yamlLine{}
+	}
+	out := yamlLine{indent: len(line) - len(strings.TrimLeft(line, " ")), content: true}
+	idx := strings.Index(trim, ":")
+	if idx <= 0 || strings.HasPrefix(trim, "- ") || (idx+1 < len(trim) && trim[idx+1] != ' ' && trim[idx+1] != '\t') {
+		return out
+	}
+	out.key = unquote(strings.TrimSpace(trim[:idx]))
+	rest := trim[idx+1:]
+	if i := strings.Index(rest, " #"); i >= 0 {
+		rest = rest[:i]
+	}
+	out.value = strings.TrimSpace(rest)
+	return out
+}
+
+// replacePluginBlock writes block (rendered by renderPluginBlock at a 4-space
+// base with 2-space steps) into config as plugins.configs.mistral. It follows
+// the file's own indentation width, keeps CRLF line endings, and creates any
+// of plugins / configs / mistral that are missing.
 func replacePluginBlock(config, block string) (string, error) {
-	lines := strings.Split(config, "\n")
-	start := -1
+	crlf := strings.Contains(config, "\r\n")
+	text := strings.ReplaceAll(config, "\r\n", "\n")
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if text == "" {
+		lines = nil
+	}
+	scanned := make([]yamlLine, len(lines))
 	for i, line := range lines {
-		if strings.TrimSpace(line) == pluginConfigKey+":" && strings.HasPrefix(line, "    ") && !strings.HasPrefix(line, "     ") {
-			start = i
-			break
+		scanned[i] = scanYAMLLine(line)
+	}
+
+	// regionEnd is the first line after start that is not nested under it.
+	regionEnd := func(start int) int {
+		for j := start + 1; j < len(lines); j++ {
+			if scanned[j].content && scanned[j].indent <= scanned[start].indent {
+				return j
+			}
+		}
+		return len(lines)
+	}
+	// lastContent is the last real line of a region, so trailing blank lines
+	// and comments stay where they are.
+	lastContent := func(start, end int) int {
+		last := start
+		for j := start + 1; j < end; j++ {
+			if scanned[j].content {
+				last = j
+			}
+		}
+		return last
+	}
+	// childIndent is the indent of the first nested line, or -1.
+	childIndent := func(start, end int) int {
+		for j := start + 1; j < end; j++ {
+			if scanned[j].content {
+				return scanned[j].indent
+			}
+		}
+		return -1
+	}
+	findKey := func(from, to, indent int, name string) int {
+		for j := from; j < to; j++ {
+			if scanned[j].content && scanned[j].indent == indent && scanned[j].key == name {
+				return j
+			}
+		}
+		return -1
+	}
+	// openMapping turns "key: {}" into "key:" so children can be added.
+	openMapping := func(i int) error {
+		switch scanned[i].value {
+		case "":
+			return nil
+		case "{}", "~", "null":
+			lines[i] = strings.Repeat(" ", scanned[i].indent) + scanned[i].key + ":"
+			scanned[i].value = ""
+			return nil
+		}
+		return fmt.Errorf("%s in the CPA config is not a block mapping; rewrite it as indented YAML", scanned[i].key)
+	}
+	splice := func(from, to int, insert []string) []string {
+		out := make([]string, 0, len(lines)+len(insert))
+		out = append(out, lines[:from]...)
+		out = append(out, insert...)
+		return append(out, lines[to:]...)
+	}
+
+	var result []string
+	unit := 2
+	plugins := findKey(0, len(lines), 0, "plugins")
+	if plugins < 0 {
+		insert := append([]string{"plugins:", "  configs:"}, reindentBlock(block, 4, 2)...)
+		result = append(append([]string{}, lines...), insert...)
+	} else {
+		if err := openMapping(plugins); err != nil {
+			return "", err
+		}
+		pluginsEnd := regionEnd(plugins)
+		if indent := childIndent(plugins, pluginsEnd); indent > 0 {
+			unit = indent
+		}
+		configs := findKey(plugins+1, pluginsEnd, unit, "configs")
+		if configs < 0 {
+			insert := append([]string{strings.Repeat(" ", unit) + "configs:"}, reindentBlock(block, 2*unit, unit)...)
+			at := lastContent(plugins, pluginsEnd) + 1
+			result = splice(at, at, insert)
+		} else {
+			if err := openMapping(configs); err != nil {
+				return "", err
+			}
+			configsEnd := regionEnd(configs)
+			entryIndent := childIndent(configs, configsEnd)
+			if entryIndent < 0 {
+				entryIndent = scanned[configs].indent + unit
+			}
+			mistral := findKey(configs+1, configsEnd, entryIndent, pluginConfigKey)
+			if mistral < 0 {
+				at := lastContent(configs, configsEnd) + 1
+				result = splice(at, at, reindentBlock(block, entryIndent, unit))
+			} else {
+				end := lastContent(mistral, regionEnd(mistral)) + 1
+				result = splice(mistral, end, reindentBlock(block, entryIndent, unit))
+			}
 		}
 	}
-	if start < 0 {
-		return "", fmt.Errorf("plugin config block %s was not found", pluginConfigKey)
+	out := strings.Join(result, "\n") + "\n"
+	if crlf {
+		out = strings.ReplaceAll(out, "\n", "\r\n")
 	}
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		line := lines[i]
-		if strings.TrimSpace(line) == "" {
+	return out, nil
+}
+
+// reindentBlock moves a block rendered at a 4-space base with 2-space steps to
+// the given base indent and step width.
+// Keys that continue a "- " list item stay aligned with the item's first key,
+// whatever the step width.
+func reindentBlock(block string, base, unit int) []string {
+	var out []string
+	itemOld, itemNew := -1, -1
+	for _, line := range strings.Split(strings.TrimRight(block, "\n"), "\n") {
+		body := strings.TrimLeft(line, " ")
+		if body == "" {
 			continue
 		}
-		if !strings.HasPrefix(line, "     ") {
-			end = i
-			break
+		n := len(line) - len(body)
+		var indent int
+		if itemOld >= 0 && n == itemOld+2 && !strings.HasPrefix(body, "- ") {
+			indent = itemNew + 2
+		} else {
+			level := (n - 4) / 2
+			if level < 0 {
+				level = 0
+			}
+			indent = base + level*unit
+			itemOld, itemNew = -1, -1
+			if strings.HasPrefix(body, "- ") {
+				itemOld, itemNew = n, indent
+			}
 		}
+		out = append(out, strings.Repeat(" ", indent)+body)
 	}
-	var buf strings.Builder
-	buf.WriteString(strings.Join(lines[:start], "\n"))
-	if start > 0 {
-		buf.WriteByte('\n')
-	}
-	buf.WriteString(strings.TrimRight(block, "\n"))
-	buf.WriteByte('\n')
-	if end < len(lines) {
-		buf.WriteString(strings.Join(lines[end:], "\n"))
-		if !strings.HasSuffix(buf.String(), "\n") {
-			buf.WriteByte('\n')
-		}
-	}
-	return buf.String(), nil
+	return out
 }
 
 func clampInt(value, low, high int) int {

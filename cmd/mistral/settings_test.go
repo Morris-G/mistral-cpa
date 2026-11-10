@@ -153,3 +153,73 @@ func TestParseRenderedPluginBlockRoundTripsKeys(t *testing.T) {
 		t.Fatalf("settings = %#v", got)
 	}
 }
+
+func TestReplacePluginBlockLayouts(t *testing.T) {
+	s := defaultSettings()
+	s.Credentials = []credential{{ID: "k1", Label: "one", APIKey: "mstrl_x", Priority: 10}}
+	block := renderPluginBlock(s)
+	cases := []struct {
+		name, config, want string
+	}{
+		{"no plugins section", "port: 8317\n",
+			"port: 8317\nplugins:\n  configs:\n    mistral:\n"},
+		{"plugins without configs", "plugins:\n  enabled: true\nport: 1\n",
+			"plugins:\n  enabled: true\n  configs:\n    mistral:\n"},
+		{"configs without mistral", "plugins:\n  configs:\n    other:\n      enabled: true\n# tail\nport: 1\n",
+			"    other:\n      enabled: true\n    mistral:\n      enabled: true\n"},
+		{"empty flow mappings", "plugins: {}\n",
+			"plugins:\n  configs:\n    mistral:\n"},
+		{"four-space indent", "plugins:\n    configs:\n        mistral:\n            enabled: false\nport: 1\n",
+			"plugins:\n    configs:\n        mistral:\n            enabled: true\n"},
+		{"empty file", "", "plugins:\n  configs:\n    mistral:\n"},
+	}
+	for _, tc := range cases {
+		got, err := replacePluginBlock(tc.config, block)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("%s: missing %q in\n%s", tc.name, tc.want, got)
+		}
+		if strings.Count(got, "mistral:") != 1 {
+			t.Errorf("%s: expected one mistral block in\n%s", tc.name, got)
+		}
+		if strings.Contains(tc.config, "port: 1") && !strings.HasSuffix(got, "port: 1\n") {
+			t.Errorf("%s: following keys moved:\n%s", tc.name, got)
+		}
+		// Saving twice must be stable.
+		again, err := replacePluginBlock(got, block)
+		if err != nil || again != got {
+			t.Errorf("%s: second save changed the file:\n%s\n---\n%s", tc.name, got, again)
+		}
+	}
+}
+
+func TestReplacePluginBlockFourSpaceListItems(t *testing.T) {
+	s := defaultSettings()
+	s.Credentials = []credential{{ID: "k1", Label: "one", APIKey: "mstrl_x", Priority: 10}}
+	got, err := replacePluginBlock("plugins:\n    configs:\n        mistral: {}\n", renderPluginBlock(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "- id" sits at 16, so its sibling keys must sit at 18, not 20.
+	if !strings.Contains(got, "\n                - id: \"k1\"\n                  label: \"one\"\n") {
+		t.Fatalf("list item keys misaligned:\n%s", got)
+	}
+}
+
+func TestReplacePluginBlockKeepsCRLF(t *testing.T) {
+	got, err := replacePluginBlock("plugins:\r\n  configs:\r\n    mistral:\r\n      enabled: false\r\nport: 1\r\n", renderPluginBlock(defaultSettings()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(got, "\n") != strings.Count(got, "\r\n") || !strings.HasSuffix(got, "port: 1\r\n") {
+		t.Fatalf("line endings changed: %q", got)
+	}
+}
+
+func TestReplacePluginBlockRejectsFlowContent(t *testing.T) {
+	if _, err := replacePluginBlock("plugins: {configs: {}}\n", renderPluginBlock(defaultSettings())); err == nil {
+		t.Fatal("non-empty flow mapping must be rejected")
+	}
+}
