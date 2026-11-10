@@ -63,7 +63,7 @@ First-run order:
 
 ## Configuration
 
-Saving in the console writes the whole `plugins.configs.mistral` block back to CPA's config file. The old format with one `api-key` and a `models` list still loads. The first console save rewrites it into the structure below.
+Saving in the console writes the whole `plugins.configs.mistral` block back to CPA's config file. You can set the file in the console under Config → CPA config file path, which is stored as `config-path` and survives restarts. When it is empty, the file is the first one that exists of: `$MISTRAL_CPA_CONFIG`, CPA's `-config` flag, `config.yaml` in the working directory, `config.yaml` next to the CPA executable, and `/CLIProxyAPI/config.yaml` (Docker image). Request logs go under `plugin-data/mistral/` in that file's directory. The old format with one `api-key` and a `models` list still loads. The first console save rewrites it into the structure below.
 
 ```yaml
 plugins:

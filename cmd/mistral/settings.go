@@ -7,12 +7,12 @@ import (
 
 const (
 	defaultBaseURL  = "https://api.mistral.ai/v1"
-	configPath      = "/CLIProxyAPI/config.yaml"
 	pluginConfigKey = "mistral"
 )
 
 type settings struct {
 	BaseURL           string
+	ConfigPath        string
 	LogRetention      int
 	StreamIdleSeconds int
 	Failover          bool
@@ -103,6 +103,7 @@ func parseSettings(configYAML []byte) settings {
 		current.LogRetention = parsed.LogRetention
 	}
 	current.StreamIdleSeconds = parsed.StreamIdleSeconds
+	current.ConfigPath = parsed.ConfigPath
 	if parsed.Failover != nil {
 		current.Failover = *parsed.Failover
 	}
@@ -125,6 +126,7 @@ func parseSettings(configYAML []byte) settings {
 
 type parsedSettings struct {
 	BaseURL           string
+	ConfigPath        string
 	APIKey            string
 	LogRetention      int
 	StreamIdleSeconds int
@@ -244,6 +246,8 @@ func parseSettingsText(text string) parsedSettings {
 			model.Upstream = value
 		case section == "models" && name == "reasoning":
 			model.Reasoning = value
+		case name == "config-path" || name == "config_path":
+			out.ConfigPath = strings.TrimSpace(value)
 		case name == "base-url" || name == "base_url":
 			out.BaseURL = value
 		case name == "api-key" || name == "api_key":
@@ -301,7 +305,7 @@ func splitYAML(line string) (string, string, bool) {
 func unquote(value string) string {
 	if len(value) >= 2 {
 		if value[0] == '"' && value[len(value)-1] == '"' {
-			return strings.ReplaceAll(value[1:len(value)-1], `\"`, `"`)
+			return unescapeDoubleQuoted(value[1 : len(value)-1])
 		}
 		if value[0] == '\'' && value[len(value)-1] == '\'' {
 			return value[1 : len(value)-1]
@@ -310,7 +314,27 @@ func unquote(value string) string {
 	return value
 }
 
+// unescapeDoubleQuoted reverses quoteYAML: a backslash followed by a
+// backslash or a double quote stands for that character.
+func unescapeDoubleQuoted(value string) string {
+	if !strings.Contains(value, `\`) {
+		return value
+	}
+	var buf strings.Builder
+	for i := 0; i < len(value); i++ {
+		if value[i] == '\\' && i+1 < len(value) && (value[i+1] == '\\' || value[i+1] == '"') {
+			i++
+		}
+		buf.WriteByte(value[i])
+	}
+	return buf.String()
+}
+
+// quoteYAML writes a YAML double-quoted scalar. Backslashes must be escaped,
+// otherwise a Windows path such as C:\Users would be read as a \U escape and
+// break CPA's whole config file.
 func quoteYAML(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
 	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
@@ -319,6 +343,9 @@ func renderPluginBlock(s settings) string {
 	fmt.Fprintf(&buf, "    %s:\n", pluginConfigKey)
 	buf.WriteString("      enabled: true\n")
 	buf.WriteString("      priority: 100\n")
+	if s.ConfigPath != "" {
+		fmt.Fprintf(&buf, "      config-path: %s\n", quoteYAML(s.ConfigPath))
+	}
 	fmt.Fprintf(&buf, "      base-url: %s\n", quoteYAML(s.BaseURL))
 	fmt.Fprintf(&buf, "      log-retention: %d\n", s.LogRetention)
 	fmt.Fprintf(&buf, "      stream-idle-seconds: %d\n", s.StreamIdleSeconds)

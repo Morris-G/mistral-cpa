@@ -63,7 +63,7 @@ http://<cpa>/v0/resource/plugins/mistral/console
 
 ## 配置
 
-保存控制台设置时，插件会把整个 `plugins.configs.mistral` 块写回 CPA 配置文件。旧版只有一把 `api-key` 加 `models` 列表的写法仍然能读，第一次在控制台保存后会变成下面的结构。
+保存控制台设置时，插件会把整个 `plugins.configs.mistral` 块写回 CPA 配置文件。配置文件路径可以在控制台「配置」页的「CPA 配置文件路径」里直接填写（会写入 `config-path`，重启后保留）；留空时按以下顺序查找，取第一个存在的：环境变量 `MISTRAL_CPA_CONFIG`、CPA 启动参数 `-config`、工作目录下的 `config.yaml`、CPA 可执行文件旁的 `config.yaml`、`/CLIProxyAPI/config.yaml`（Docker 镜像）。请求日志写在配置文件所在目录的 `plugin-data/mistral/` 下。旧版只有一把 `api-key` 加 `models` 列表的写法仍然能读，第一次在控制台保存后会变成下面的结构。
 
 ```yaml
 plugins:

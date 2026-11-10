@@ -40,6 +40,7 @@ func publicState() map[string]any {
 	}
 	return map[string]any{
 		"base_url": current.BaseURL, "log_retention": current.LogRetention,
+		"config_path": current.ConfigPath, "config_path_resolved": resolveConfigPath(current.ConfigPath),
 		"stream_idle_seconds": current.StreamIdleSeconds,
 		"failover":            current.Failover, "ignore_proxy": current.IgnoreProxy,
 		"cooldown_seconds": current.CooldownSeconds,
@@ -66,6 +67,7 @@ type adminRequest struct {
 	UpstreamID        string       `json:"upstream_id"`
 	Reasoning         string       `json:"reasoning"`
 	BaseURL           string       `json:"base_url"`
+	ConfigPath        *string      `json:"config_path"`
 	LogRetention      int          `json:"log_retention"`
 	StreamIdleSeconds *int         `json:"stream_idle_seconds"`
 	Failover          *bool        `json:"failover"`
@@ -150,6 +152,12 @@ func handleAdmin(body []byte, callbackID string) (int, []byte) {
 		}
 		next.Models = kept
 	case "put-settings":
+		if req.ConfigPath != nil {
+			next.ConfigPath = strings.TrimSpace(*req.ConfigPath)
+			if err := validateConfigPath(next.ConfigPath); err != nil {
+				return 400, jsonError(err.Error())
+			}
+		}
 		if value := strings.TrimSpace(req.BaseURL); value != "" {
 			next.BaseURL = strings.TrimRight(value, "/")
 		}

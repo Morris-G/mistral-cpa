@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const logPath = "/CLIProxyAPI/plugin-data/mistral/requests.jsonl"
-
 type requestLog struct {
 	Time             string  `json:"time"`
 	Model            string  `json:"model"`
@@ -68,14 +66,14 @@ func appendRequestLog(entry requestLog) {
 	}
 	logMu.Lock()
 	defer logMu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(requestLogPath()), 0o755); err != nil {
 		return
 	}
 	raw, err := json.Marshal(entry)
 	if err != nil {
 		return
 	}
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(requestLogPath(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}
@@ -88,7 +86,7 @@ func trimRequestLogs(keep int) {
 	if keep <= 0 {
 		keep = 200
 	}
-	raw, err := os.ReadFile(logPath)
+	raw, err := os.ReadFile(requestLogPath())
 	if err != nil {
 		return
 	}
@@ -97,7 +95,7 @@ func trimRequestLogs(keep int) {
 		return
 	}
 	lines = lines[len(lines)-keep:]
-	_ = os.WriteFile(logPath, []byte(joinLines(lines)), 0o644)
+	_ = os.WriteFile(requestLogPath(), []byte(joinLines(lines)), 0o644)
 }
 
 func recentLogs(limit int) []requestLog {
@@ -106,7 +104,7 @@ func recentLogs(limit int) []requestLog {
 	}
 	logMu.Lock()
 	defer logMu.Unlock()
-	raw, err := os.ReadFile(logPath)
+	raw, err := os.ReadFile(requestLogPath())
 	if err != nil {
 		return nil
 	}

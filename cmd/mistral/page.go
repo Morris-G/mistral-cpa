@@ -345,6 +345,9 @@ const STRINGS = {
     configHint: '保存后写入 CPA 配置文件的 plugins.configs.mistral 块。',
     baseUrl: 'Base URL',
     baseUrlHint: 'Mistral API 地址，带 /v1。',
+    configPath: 'CPA 配置文件路径',
+    configPathHint: '留空则自动查找。当前使用：{path}',
+    configPathPlaceholder: '留空自动查找，例如 /opt/cliproxyapi/config.yaml 或 C:\\CLIProxyAPI\\config.yaml',
     logRetentionHint: '10 到 5000。',
     idleHint: '0 为关闭，单位秒。',
     cooldown: '冷却基数',
@@ -530,6 +533,9 @@ const STRINGS = {
     configHint: 'Saving writes the plugins.configs.mistral block in the CPA config file.',
     baseUrl: 'Base URL',
     baseUrlHint: 'Mistral API address, including /v1.',
+    configPath: 'CPA config file path',
+    configPathHint: 'Leave empty to detect it automatically. In use: {path}',
+    configPathPlaceholder: 'Empty means auto-detect, e.g. /opt/cliproxyapi/config.yaml or C:\\CLIProxyAPI\\config.yaml',
     logRetentionHint: '10 to 5000.',
     idleHint: 'Seconds. 0 disables it.',
     cooldown: 'Cooldown base',
@@ -1086,6 +1092,7 @@ function renderConfig() {
   document.querySelector('#config').innerHTML =
     '<div class="card"><div class="view-head"><div><h2>' + t('configTitle') + '</h2><p>' + t('configHint') + '</p></div></div>'
     + '<div class="config-grid">'
+    + '<div class="field full"><label for="config-path">' + t('configPath') + '<span class="hint">' + esc(t('configPathHint', {path: data.config_path_resolved || ''})) + '</span></label><input id="config-path" placeholder="' + esc(t('configPathPlaceholder')) + '" value="' + esc(data.config_path || '') + '"></div>'
     + '<div class="field full"><label for="base">' + t('baseUrl') + '<span class="hint">' + t('baseUrlHint') + '</span></label><input id="base" value="' + esc(data.base_url) + '"></div>'
     + '<div class="field"><label for="keep">' + t('logRetention') + '<span class="hint">' + t('logRetentionHint') + '</span></label><input id="keep" type="number" min="10" max="5000" value="' + data.log_retention + '"></div>'
     + '<div class="field"><label for="idle">' + t('idleCutoff') + '<span class="hint">' + t('idleHint') + '</span></label><input id="idle" type="number" min="0" max="3600" value="' + (data.stream_idle_seconds || 0) + '"></div>'
@@ -1094,7 +1101,7 @@ function renderConfig() {
     + '<div class="field"><label>' + t('ignoreProxy') + '<span class="hint">' + t('ignoreProxyHint') + '</span></label><span class="switch"><input id="ignore-proxy" type="checkbox"' + (data.ignore_proxy ? ' checked' : '') + '> ' + t('on') + '</span></div>'
     + '</div><div class="form"><button class="primary" id="save-settings">' + t('saveSettings') + '</button><span class="muted">' + t('failoverOffHint') + '</span></div></div>';
   document.querySelector('#save-settings').onclick = () => applyAction({
-    action:'put-settings', base_url:val('#base'), log_retention:Number(val('#keep')),
+    action:'put-settings', config_path:val('#config-path'), base_url:val('#base'), log_retention:Number(val('#keep')),
     stream_idle_seconds:Number(val('#idle')), failover:document.querySelector('#failover').checked,
     ignore_proxy:document.querySelector('#ignore-proxy').checked,
     cooldown_seconds:Number(val('#cooldown'))

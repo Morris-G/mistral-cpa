@@ -642,9 +642,10 @@ func handleManagement(request []byte) []byte {
 }
 
 func persistSettings(next settings) error {
+	configPath := resolveConfigPath(next.ConfigPath)
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("read CPA config: %w (set the config file path on the console's Config tab)", err)
 	}
 	updated, err := replacePluginBlock(string(raw), renderPluginBlock(next))
 	if err != nil {
